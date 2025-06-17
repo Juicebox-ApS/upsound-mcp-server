@@ -1,20 +1,20 @@
 {
-  "name": "@openbnb/mcp-server-airbnb",
+  "name": "juicebox-aps/upsound-mcp-server",
   "version": "0.1.1",
-  "description": "MCP server for Airbnb search and listing details",
+  "description": "MCP server for Upsound search and listing details",
   "license": "MIT",
   "type": "module",
-  "author": "OpenBnB (https://openbnb.org)",
+  "author": "Upsound-ApS (https://upsound.com)",
   "keywords": [
-		"mcp",
-		"airbnb",
-		"vacation rental"
-	],
+    "mcp",
+    "upsound",
+    "vacation rental"
+  ],
   "publishConfig": {
-		"access": "public"
-	},
+    "access": "public"
+  },
   "bin": {
-    "mcp-server-airbnb": "dist/index.js"
+    "mcp-server-upsound": "dist/index.js"
   },
   "files": [
     "dist"
@@ -26,7 +26,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.1",
-    "cheerio": "^1.0.0",
     "node-fetch": "^3.3.2",
     "robots-parser": "^3.0.1"
   },

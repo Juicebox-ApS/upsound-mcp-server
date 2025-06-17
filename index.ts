@@ -10,126 +10,73 @@ import {
   ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
 import fetch from "node-fetch";
-import * as cheerio from "cheerio";
-import { cleanObject, flattenArraysInObject, pickBySchema } from "./util.js";
 import robotsParser from "robots-parser";
 
 // Tool definitions
-const AIRBNB_SEARCH_TOOL: Tool = {
-  name: "airbnb_search",
-  description: "Search for Airbnb listings with various filters and pagination. Provide direct links to the user",
+const UPSOUND_SEARCH_STUDIOS_TOOL: Tool = {
+  name: "upsound_search_studios",
+  description:
+    "Search for Upsound studios with various filters and pagination. Provide direct links to the user",
   inputSchema: {
     type: "object",
     properties: {
+      country: {
+        type: "string",
+        description: "Country to search for (e.g. 'United States')",
+      },
       location: {
         type: "string",
-        description: "Location to search for (city, state, etc.)"
+        description: "Location to search for (e.g. 'New York')",
       },
-      placeId: {
+      studioType: {
         type: "string",
-        description: "Google Maps Place ID (overrides the location parameter)"
-      },
-      checkin: {
-        type: "string",
-        description: "Check-in date (YYYY-MM-DD)"
-      },
-      checkout: {
-        type: "string",
-        description: "Check-out date (YYYY-MM-DD)"
-      },
-      adults: {
-        type: "number",
-        description: "Number of adults"
-      },
-      children: {
-        type: "number",
-        description: "Number of children"
-      },
-      infants: {
-        type: "number",
-        description: "Number of infants"
-      },
-      pets: {
-        type: "number",
-        description: "Number of pets"
-      },
-      minPrice: {
-        type: "number",
-        description: "Minimum price for the stay"
-      },
-      maxPrice: {
-        type: "number",
-        description: "Maximum price for the stay"
-      },
-      cursor: {
-        type: "string",
-        description: "Base64-encoded string used for Pagination"
+        description:
+          "Type of studio to search for (e.g. 'Recording Studio')",
       },
       ignoreRobotsText: {
         type: "boolean",
-        description: "Ignore robots.txt rules for this request"
-      }
+        description: "Ignore robots.txt rules for this request",
+      },
     },
-    required: ["location"]
-  }
+    required: ["country"],
+  },
 };
 
-const AIRBNB_LISTING_DETAILS_TOOL: Tool = {
-  name: "airbnb_listing_details",
-  description: "Get detailed information about a specific Airbnb listing. Provide direct links to the user",
+const UPSOUND_STUDIO_DETAILS_TOOL: Tool = {
+  name: "upsound_studio_details",
+  description:
+    "Get detailed information about a specific Upsound studio. Provide direct links to the user",
   inputSchema: {
     type: "object",
     properties: {
       id: {
         type: "string",
-        description: "The Airbnb listing ID"
-      },
-      checkin: {
-        type: "string",
-        description: "Check-in date (YYYY-MM-DD)"
-      },
-      checkout: {
-        type: "string",
-        description: "Check-out date (YYYY-MM-DD)"
-      },
-      adults: {
-        type: "number",
-        description: "Number of adults"
-      },
-      children: {
-        type: "number",
-        description: "Number of children"
-      },
-      infants: {
-        type: "number",
-        description: "Number of infants"
-      },
-      pets: {
-        type: "number",
-        description: "Number of pets"
+        description: "The Upsound studio ID",
       },
       ignoreRobotsText: {
         type: "boolean",
-        description: "Ignore robots.txt rules for this request"
-      }
+        description: "Ignore robots.txt rules for this request",
+      },
     },
-    required: ["id"]
-  }
+    required: ["id"],
+  },
 };
 
-const AIRBNB_TOOLS = [
-  AIRBNB_SEARCH_TOOL,
-  AIRBNB_LISTING_DETAILS_TOOL,
+const UPSOUND_TOOLS = [
+  UPSOUND_SEARCH_STUDIOS_TOOL,
+  UPSOUND_STUDIO_DETAILS_TOOL,
 ] as const;
 
 // Utility functions
-const USER_AGENT = "ModelContextProtocol/1.0 (Autonomous; +https://github.com/modelcontextprotocol/servers)";
-const BASE_URL = "https://www.airbnb.com";
+const USER_AGENT =
+  "ModelContextProtocol/1.0 (Autonomous; +https://github.com/modelcontextprotocol/servers)";
+const BASE_URL = "https://api.upsound.com/api";
 
 const args = process.argv.slice(2);
 const IGNORE_ROBOTS_TXT = args.includes("--ignore-robots-txt");
 
-const robotsErrorMessage = "This path is disallowed by Airbnb's robots.txt to this User-agent. You may or may not want to run the server with '--ignore-robots-txt' args"
+const robotsErrorMessage =
+  "This path is disallowed by Upsound's robots.txt to this User-agent. You may or may not want to run the server with '--ignore-robots-txt' args";
 let robotsTxtContent = "";
 
 // Simple robots.txt fetch
@@ -139,7 +86,9 @@ async function fetchRobotsTxt() {
   }
 
   try {
-    const response = await fetchWithUserAgent(`${BASE_URL}/robots.txt`);
+    const response = await fetchWithUserAgent(
+      `${BASE_URL}/robots.txt`
+    );
     robotsTxtContent = await response.text();
   } catch (error) {
     console.error("Error fetching robots.txt:", error);
@@ -147,7 +96,7 @@ async function fetchRobotsTxt() {
   }
 }
 
-function isPathAllowed(path: string) {  
+function isPathAllowed(path: string) {
   if (!robotsTxtContent) {
     return true; // If we couldn't fetch robots.txt, assume allowed
   }
@@ -157,7 +106,7 @@ function isPathAllowed(path: string) {
     console.error(robotsErrorMessage);
     return false;
   }
-  
+
   return true;
 }
 
@@ -171,78 +120,52 @@ async function fetchWithUserAgent(url: string) {
 }
 
 // API handlers
-async function handleAirbnbSearch(params: any) {
+async function handleUpsoundSearch(params: any) {
   const {
+    country,
     location,
-    placeId,
     checkin,
-    checkout,
-    adults = 1,
-    children = 0,
-    infants = 0,
-    pets = 0,
-    minPrice,
     maxPrice,
-    cursor,
     ignoreRobotsText = false,
   } = params;
 
   // Build search URL
-  const searchUrl = new URL(`${BASE_URL}/s/${encodeURIComponent(location)}/homes`);
-  
-  // Add placeId
-  if (placeId) searchUrl.searchParams.append("place_id", placeId);
-  
-  // Add query parameters
-  if (checkin) searchUrl.searchParams.append("checkin", checkin);
-  if (checkout) searchUrl.searchParams.append("checkout", checkout);
-  
-  // Add guests
-  const adults_int = parseInt(adults.toString());
-  const children_int = parseInt(children.toString());
-  const infants_int = parseInt(infants.toString());
-  const pets_int = parseInt(pets.toString());
-  
-  const totalGuests = adults_int + children_int;
-  if (totalGuests > 0) {
-    searchUrl.searchParams.append("adults", adults_int.toString());
-    searchUrl.searchParams.append("children", children_int.toString());
-    searchUrl.searchParams.append("infants", infants_int.toString());
-    searchUrl.searchParams.append("pets", pets_int.toString());
-  }
-  
-  // Add price range
-  if (minPrice) searchUrl.searchParams.append("price_min", minPrice.toString());
-  if (maxPrice) searchUrl.searchParams.append("price_max", maxPrice.toString());
-  
-  // Add room type
-  // if (roomType) {
-  //   const roomTypeParam = roomType.toLowerCase().replace(/\s+/g, '_');
-  //   searchUrl.searchParams.append("room_types[]", roomTypeParam);
-  // }
+  const searchUrl = new URL(`${BASE_URL}/studios`);
 
-  // Add cursor for pagination
-  if (cursor) {
-    searchUrl.searchParams.append("cursor", cursor);
-  }
+  searchUrl.searchParams.append("country", country);
+  if (location) searchUrl.searchParams.append("term", location);
+
+  // Add query parameters
+  if (checkin)
+    searchUrl.searchParams.append("available_date", checkin);
+
+  // Add price range
+  if (maxPrice)
+    searchUrl.searchParams.append("max_price", maxPrice.toString());
 
   // Check if path is allowed by robots.txt
   const path = searchUrl.pathname + searchUrl.search;
   if (!ignoreRobotsText && !isPathAllowed(path)) {
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          error: robotsErrorMessage,
-          url: searchUrl.toString()
-        }, null, 2)
-      }],
-      isError: true
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              error: robotsErrorMessage,
+              url: searchUrl.toString(),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+      isError: true,
     };
   }
 
   const allowSearchResultSchema: Record<string, any> = {
-    demandStayListing : {
+    demandStayListing: {
       id: true,
       description: true,
       location: true,
@@ -252,16 +175,16 @@ async function handleAirbnbSearch(params: any) {
     },
     structuredContent: {
       mapCategoryInfo: {
-        body: true
+        body: true,
       },
       mapSecondaryLine: {
-        body: true
+        body: true,
       },
       primaryLine: {
-        body: true
+        body: true,
       },
       secondaryLine: {
-        body: true
+        body: true,
       },
     },
     avgRatingA11yLabel: true,
@@ -278,10 +201,10 @@ async function handleAirbnbSearch(params: any) {
         priceDetails: {
           items: {
             description: true,
-            priceString: true
-          }
-        }
-      }
+            priceString: true,
+          },
+        },
+      },
     },
     // contextualPictures: {
     //   picture: true
@@ -290,183 +213,113 @@ async function handleAirbnbSearch(params: any) {
 
   try {
     const response = await fetchWithUserAgent(searchUrl.toString());
-    const html = await response.text();
-    const $ = cheerio.load(html);
-    
-    let staysSearchResults = {};
-    
-    try {
-      const scriptElement = $("#data-deferred-state-0").first();
-      const clientData = JSON.parse($(scriptElement).text()).niobeMinimalClientData[0][1];
-      const results = clientData.data.presentation.staysSearch.results;
-      cleanObject(results);
-      staysSearchResults = {
-        searchResults: results.searchResults
-          .map((result: any) => flattenArraysInObject(pickBySchema(result, allowSearchResultSchema)))
-          .map((result: any) => {
-            const id = atob(result.demandStayListing.id).split(":")[1];
-            return {id, url: `${BASE_URL}/rooms/${id}`, ...result }
-          }),
-        paginationInfo: results.paginationInfo
-      }
-    } catch (e) {
-        console.error(e);
-    }
+    const data = await response.json();
 
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          searchUrl: searchUrl.toString(),
-          ...staysSearchResults
-        }, null, 2)
-      }],
-      isError: false
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              searchUrl: searchUrl.toString(),
+              data: data,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+      isError: false,
     };
   } catch (error) {
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          error: error instanceof Error ? error.message : String(error),
-          searchUrl: searchUrl.toString()
-        }, null, 2)
-      }],
-      isError: true
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : String(error),
+              searchUrl: searchUrl.toString(),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+      isError: true,
     };
   }
 }
 
-async function handleAirbnbListingDetails(params: any) {
-  const {
-    id,
-    checkin,
-    checkout,
-    adults = 1,
-    children = 0,
-    infants = 0,
-    pets = 0,
-    ignoreRobotsText = false,
-  } = params;
+async function handleUpsoundStudioDetails(params: any) {
+  const { id, ignoreRobotsText = false } = params;
 
   // Build listing URL
-  const listingUrl = new URL(`${BASE_URL}/rooms/${id}`);
-  
-  // Add query parameters
-  if (checkin) listingUrl.searchParams.append("check_in", checkin);
-  if (checkout) listingUrl.searchParams.append("check_out", checkout);
-  
-  // Add guests
-  const adults_int = parseInt(adults.toString());
-  const children_int = parseInt(children.toString());
-  const infants_int = parseInt(infants.toString());
-  const pets_int = parseInt(pets.toString());
-  
-  const totalGuests = adults_int + children_int;
-  if (totalGuests > 0) {
-    listingUrl.searchParams.append("adults", adults_int.toString());
-    listingUrl.searchParams.append("children", children_int.toString());
-    listingUrl.searchParams.append("infants", infants_int.toString());
-    listingUrl.searchParams.append("pets", pets_int.toString());
-  }
+  const listingUrl = new URL(`${BASE_URL}/studios/${id}`);
 
   // Check if path is allowed by robots.txt
   const path = listingUrl.pathname + listingUrl.search;
   if (!ignoreRobotsText && !isPathAllowed(path)) {
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          error: robotsErrorMessage,
-          url: listingUrl.toString()
-        }, null, 2)
-      }],
-      isError: true
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              error: robotsErrorMessage,
+              url: listingUrl.toString(),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+      isError: true,
     };
   }
 
-  const allowSectionSchema: Record<string, any> = {
-    "LOCATION_DEFAULT": {
-      lat: true,
-      lng: true,
-      subtitle: true,
-      title: true
-    },
-    "POLICIES_DEFAULT": {
-      title: true,
-      houseRulesSections: {
-        title: true,
-        items : {
-          title: true
-        }
-      }
-    },
-    "HIGHLIGHTS_DEFAULT": {
-      highlights: {
-        title: true
-      }
-    },
-    "DESCRIPTION_DEFAULT": {
-      htmlDescription: {
-        htmlText: true
-      }
-    },
-    "AMENITIES_DEFAULT": {
-      title: true,
-      seeAllAmenitiesGroups: {
-        title: true,
-        amenities: {
-          title: true
-        }
-      }
-    },
-    //"AVAILABLITY_CALENDAR_DEFAULT": true,
-  };
-
   try {
     const response = await fetchWithUserAgent(listingUrl.toString());
-    const html = await response.text();
-    const $ = cheerio.load(html);
-    
-    let details = {};
-    
-    try {
-      const scriptElement = $("#data-deferred-state-0").first();
-      const clientData = JSON.parse($(scriptElement).text()).niobeMinimalClientData[0][1];
-      const sections = clientData.data.presentation.stayProductDetailPage.sections.sections;
-      sections.forEach((section: any) => cleanObject(section));
-      details = sections
-        .filter((section: any) => allowSectionSchema.hasOwnProperty(section.sectionId))
-        .map((section: any) => {
-          return {
-            id: section.sectionId,
-            ...flattenArraysInObject(pickBySchema(section.section, allowSectionSchema[section.sectionId]))
-          }
-        });
-    } catch (e) {
-        console.error(e);
-    }
+    const data = await response.json();
 
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          listingUrl: listingUrl.toString(),
-          details: details
-        }, null, 2)
-      }],
-      isError: false
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              listingUrl: listingUrl.toString(),
+              details: data,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+      isError: false,
     };
   } catch (error) {
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          error: error instanceof Error ? error.message : String(error),
-          listingUrl: listingUrl.toString()
-        }, null, 2)
-      }],
-      isError: true
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : String(error),
+              listingUrl: listingUrl.toString(),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+      isError: true,
     };
   }
 }
@@ -474,23 +327,25 @@ async function handleAirbnbListingDetails(params: any) {
 // Server setup
 const server = new Server(
   {
-    name: "airbnb",
+    name: "upsound",
     version: "0.1.0",
   },
   {
     capabilities: {
       tools: {},
     },
-  },
+  }
 );
 
 console.error(
-  `Server started with options: ${IGNORE_ROBOTS_TXT ? "ignore-robots-txt" : "respect-robots-txt"}`
+  `Server started with options: ${
+    IGNORE_ROBOTS_TXT ? "ignore-robots-txt" : "respect-robots-txt"
+  }`
 );
 
 // Set up request handlers
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: AIRBNB_TOOLS,
+  tools: UPSOUND_TOOLS,
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -501,12 +356,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     switch (request.params.name) {
-      case "airbnb_search": {
-        return await handleAirbnbSearch(request.params.arguments);
+      case "upsound_search_studios": {
+        return await handleUpsoundSearch(request.params.arguments);
       }
 
-      case "airbnb_listing_details": {
-        return await handleAirbnbListingDetails(request.params.arguments);
+      case "upsound_studio_details": {
+        return await handleUpsoundStudioDetails(
+          request.params.arguments
+        );
       }
 
       default:
@@ -517,11 +374,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   } catch (error) {
     return {
-      content: [{
-        type: "text",
-        text: `Error: ${error instanceof Error ? error.message : String(error)}`
-      }],
-      isError: true
+      content: [
+        {
+          type: "text",
+          text: `Error: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        },
+      ],
+      isError: true,
     };
   }
 });
@@ -529,7 +390,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function runServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Airbnb MCP Server running on stdio");
+  console.error("Upsound MCP Server running on stdio");
 }
 
 runServer().catch((error) => {
